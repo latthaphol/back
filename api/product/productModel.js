@@ -53,6 +53,8 @@ class productModel {
                 'p.product_thickness',
                 'p.unit_id',
                 'p.is_active',
+                'p.itemset_id',
+
                 'pt.product_type', 
                 knex.raw('COALESCE(SUM(pl.product_lot_qty), 0) as total_quantity')
             )
@@ -97,85 +99,83 @@ class productModel {
 
 
     get_product_sales = (is_active) => {
-        return knex.transaction(async (trx) => {
-            try {
-                // Retrieve product data including the old data and related lot data excluding lots with is_active = 0
-                const productData = await trx('product as p')
-                    .leftJoin('product_type as pt', 'p.product_type_id', 'pt.product_type_id')
-                    .leftJoin('product_lot as pl', 'p.product_id', 'pl.product_id')
-                    .leftJoin('product_itemset as pi', 'p.product_id', 'pi.product_id') // Join with the product_itemset table
-                    .where('pl.is_active', '=', 1)
-                    .select(
-                        'p.product_id',
-                        'p.product_name',
-                        'p.product_detail',
-                        'p.product_image',
-                        'p.product_type_id',
-                        'pt.product_type',
-                        'p.product_width',
-                        'p.product_length',
-                        'p.product_thickness',
-                        'p.unit_id',
-                        'p.is_active',
-                        'p.itemset_id',
+    return knex.transaction(async (trx) => {
+        try {
+            // Retrieve product data including the old data and related lot data excluding lots with is_active = 0
+            const productData = await trx('product as p')
+                .leftJoin('product_type as pt', 'p.product_type_id', 'pt.product_type_id')
+                .leftJoin('product_lot as pl', 'p.product_id', 'pl.product_id')
+                .leftJoin('product_itemset as pi', 'p.product_id', 'pi.product_id') // Join with the product_itemset table
+                .where('pl.is_active', '=', 1)
+                .select(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.product_detail',
+                    'p.product_image',
+                    'p.product_type_id',
+                    'pt.product_type',
+                    'p.product_width',
+                    'p.product_length',
+                    'p.product_thickness',
+                    'p.unit_id',
+                    'p.is_active',
+                    'p.itemset_id',
 
-                        'pl.product_lot_id',
-                        'pl.product_lot_price',
-                        'pl.product_lot_cost',
-                        'pl.product_lot_qty',
-                        'pl.add_date',
-    
-                    )
-                    .where('p.is_active', '=', is_active)
-                    .orderBy(['p.product_id', { column: 'pl.add_date', order: 'desc' }]);
-    
-                // Process data to include old product data and separate each product_lot details along with itemset_id
-                const productSales = productData.reduce((acc, cur) => {
-                    if (!acc[cur.product_id]) {
-                        acc[cur.product_id] = {
-                            product_id: cur.product_id,
-                            product_name: cur.product_name,
-                            product_detail: cur.product_detail,
-                            product_image: cur.product_image,
-                            product_type_id: cur.product_type_id,
-                            product_type: cur.product_type,
-                            product_width: cur.product_width,
-                            product_length: cur.product_length,
-                            product_thickness: cur.product_thickness,
-                            unit_id: cur.unit_id,
-                            is_active: cur.is_active,
-                            itemset_id: cur.itemset_id, // Add itemset_id to the product details
-                            lots: []
-                        };
+                    'pl.product_lot_id',
+                    'pl.product_lot_price',
+                    'pl.product_lot_cost',
+                    'pl.product_lot_qty',
+                    'pl.add_date',
+
+                )
+                .where('p.is_active', '=', is_active)
+                .orderBy(['p.product_id', { column: 'pl.add_date', order: 'desc' }]);
+
+            // Process data to include old product data and separate each product_lot details along with itemset_id
+            const productSales = productData.reduce((acc, cur) => {
+                if (!acc[cur.product_id]) {
+                    acc[cur.product_id] = {
+                        product_id: cur.product_id,
+                        product_name: cur.product_name,
+                        product_detail: cur.product_detail,
+                        product_image: cur.product_image,
+                        product_type_id: cur.product_type_id,
+                        product_type: cur.product_type,
+                        product_width: cur.product_width,
+                        product_length: cur.product_length,
+                        product_thickness: cur.product_thickness,
+                        unit_id: cur.unit_id,
+                        is_active: cur.is_active,
+                        itemset_id: cur.itemset_id, // Add itemset_id to the product details
+                        lots: []
+                    };
+                }
+                if (cur.product_lot_id) {
+                    acc[cur.product_id].lots.push({
+                        product_lot_id: cur.product_lot_id,
+                        product_lot_price: cur.product_lot_price,
+                        product_lot_cost: cur.product_lot_cost,
+                        product_lot_qty: cur.product_lot_qty,
+                        add_date: cur.add_date,
+                    });
+                    // Check if product_lot_qty is 0, then set is_active to 0
+                    if (cur.product_lot_qty === 0) {
+                        knex('product_lot')
+                            .where('product_lot_id', cur.product_lot_id)
+                            .update({ is_active: 0 });
                     }
-                    if (cur.product_lot_id) {
-                        acc[cur.product_id].lots.push({
-                            product_lot_id: cur.product_lot_id,
-                            product_lot_price: cur.product_lot_price,
-                            product_lot_cost: cur.product_lot_cost,
-                            product_lot_qty: cur.product_lot_qty,
-                            add_date: cur.add_date,
-                        });
-                    }
-                    // if (cur.itemset_id) {
-                    //     acc[cur.itemset_id].lots.push({
-                    //         product_lot_id: cur.product_lot_id,
-                    //         product_lot_price: cur.product_lot_price,
-                    //         product_lot_cost: cur.product_lot_cost,
-                    //         product_lot_qty: cur.product_lot_qty,
-                    //         add_date: cur.add_date,
-                    //     });
-                    // }
-                    return acc;
-                }, {});
-    
-                return Object.values(productSales); // Convert to array of products with old data, separated lots, and itemset_id
-            } catch (error) {
-                console.error(error);
-                throw error;
-            }
-        });
-    };
+                }
+                return acc;
+            }, {});
+
+            return Object.values(productSales); // Convert to array of products with old data, separated lots, and itemset_id
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    });
+};
+
     
     get_product_less(number) {
         return knex('product as p').where({ 'p.is_active': 1 }).andWhere('p.product_qty', '<=', number)
@@ -519,6 +519,13 @@ class productModel {
             'itemset_id',
         )
             .where({ product_id: itemset_id}) // Assuming you want to include only active lots
+    } 
+    get_product_id_by_itemset_id(itemset_id) {
+        return knex('product_itemset')
+        .select(
+            'product_id',
+        )
+            .where({ itemset_id: itemset_id}) // Assuming you want to include only active lots
     } 
 
     update_product_lot_quantity(product_lot_id, newQuantity) {
